@@ -20,101 +20,10 @@ app.use(cors({
 
 app.use(express.json());
 
-
-const io = new Server(server,{
-    cors:{
-        origin:"*"
-    }
-});
-
-
-
-// =======================
-// DATABASE
-// =======================
-
-
-const pool = new Pool({
-
-    connectionString:
-    process.env.DATABASE_URL,
-
-    ssl:{
-        rejectUnauthorized:false
-    }
-
-});
-
-
-
-
-// =======================
-// FILE UPLOAD
-// =======================
-
-
-const storage = multer.diskStorage({
-
-    destination:"uploads/",
-
-    filename:(req,file,cb)=>{
-
-        cb(
-            null,
-            Date.now()+"-"+file.originalname
-        );
-
-    }
-
-});
-
-
-const upload = multer({
-    storage
-});
-
-
-app.use(
-    "/uploads",
-    express.static("uploads")
-);
-
-
-
-
-
-const SECRET =
-process.env.JWT_SECRET ||
-"novachat-secret";
-
-
-
-
-
-console.log(
-"NovaChat Pro starting..."
-);
-const express = require("express");
-const http = require("http");
-const cors = require("cors");
-const { Server } = require("socket.io");
-const { Pool } = require("pg");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const multer = require("multer");
-require("dotenv").config();
-
-
-const app = express();
-
-const server = http.createServer(app);
-
-
-app.use(cors({
-    origin:"*"
+app.use(express.urlencoded({
+    extended:true
 }));
 
-app.use(express.json());
 
 
 const io = new Server(server,{
@@ -125,9 +34,9 @@ const io = new Server(server,{
 
 
 
-// =======================
+// =====================
 // DATABASE
-// =======================
+// =====================
 
 
 const pool = new Pool({
@@ -143,17 +52,21 @@ const pool = new Pool({
 
 
 
-
-// =======================
-// FILE UPLOAD
-// =======================
+// =====================
+// UPLOADS
+// =====================
 
 
 const storage = multer.diskStorage({
 
-    destination:"uploads/",
+    destination:function(req,file,cb){
 
-    filename:(req,file,cb)=>{
+        cb(null,"uploads/");
+
+    },
+
+
+    filename:function(req,file,cb){
 
         cb(
             null,
@@ -178,21 +91,312 @@ app.use(
 
 
 
+// =====================
+// CONFIG
+// =====================
+
 
 const SECRET =
 process.env.JWT_SECRET ||
-"novachat-secret";
+"novachat_secret";
 
 
 
+
+// =====================
+// DATABASE TABLES
+// =====================
+
+
+async function createTables(){
+
+
+await pool.query(`
+
+CREATE TABLE IF NOT EXISTS users(
+
+id SERIAL PRIMARY KEY,
+
+username TEXT NOT NULL,
+
+email TEXT UNIQUE NOT NULL,
+
+password TEXT NOT NULL,
+
+avatar TEXT DEFAULT '👤',
+
+bio TEXT DEFAULT '',
+
+status TEXT DEFAULT 'offline',
+
+last_seen TIMESTAMP DEFAULT NOW(),
+
+created_at TIMESTAMP DEFAULT NOW()
+
+);
+
+`);
+
+
+
+
+await pool.query(`
+
+CREATE TABLE IF NOT EXISTS messages(
+
+id SERIAL PRIMARY KEY,
+
+sender_id INTEGER,
+
+username TEXT,
+
+text TEXT,
+
+created_at TIMESTAMP DEFAULT NOW()
+
+);
+
+`);
+
+
+
+
+await pool.query(`
+
+CREATE TABLE IF NOT EXISTS private_messages(
+
+id SERIAL PRIMARY KEY,
+
+sender_id INTEGER,
+
+receiver_id INTEGER,
+
+sender_name TEXT,
+
+text TEXT,
+
+created_at TIMESTAMP DEFAULT NOW()
+
+);
+
+`);
 
 
 console.log(
-"NovaChat Pro starting..."
+"Database ready"
 );
-// =======================
-// USERS API
-// =======================
+
+
+}
+
+
+
+// =====================
+// TOKEN
+// =====================
+
+
+function generateToken(user){
+
+
+return jwt.sign(
+
+{
+
+id:user.id,
+
+username:user.username,
+
+email:user.email
+
+},
+
+SECRET,
+
+{
+expiresIn:"30d"
+}
+
+);
+
+
+}
+
+
+
+// =====================
+// REGISTER
+// =====================
+
+
+app.post("/register",async(req,res)=>{
+
+
+try{
+
+
+const {
+
+username,
+
+email,
+
+password
+
+}=req.body;
+
+
+
+const hash =
+await bcrypt.hash(password,10);
+
+
+
+const result =
+await pool.query(
+
+`
+
+INSERT INTO users
+
+(username,email,password)
+
+VALUES($1,$2,$3)
+
+RETURNING *
+
+`,
+
+[
+username,
+email,
+hash
+]
+
+);
+
+
+
+const user =
+result.rows[0];
+
+
+
+res.json({
+
+token:
+generateToken(user),
+
+user
+
+});
+
+
+}
+
+catch(error){
+
+
+console.log(error);
+
+
+res.status(400).json({
+
+error:"Email уже существует"
+
+});
+
+
+}
+
+
+});
+
+
+
+// =====================
+// LOGIN
+// =====================
+
+
+app.post("/login",async(req,res)=>{
+
+
+const {
+
+email,
+
+password
+
+}=req.body;
+
+
+
+const result =
+await pool.query(
+
+"SELECT * FROM users WHERE email=$1",
+
+[email]
+
+);
+
+
+
+if(!result.rows.length){
+
+return res.status(404).json({
+
+error:"Пользователь не найден"
+
+});
+
+}
+
+
+
+const user =
+result.rows[0];
+
+
+
+const check =
+await bcrypt.compare(
+
+password,
+
+user.password
+
+);
+
+
+
+if(!check){
+
+return res.status(401).json({
+
+error:"Неверный пароль"
+
+});
+
+}
+
+
+
+res.json({
+
+token:
+generateToken(user),
+
+user
+
+});
+
+
+});
+// =====================
+// USERS
+// =====================
 
 
 app.get("/users", async(req,res)=>{
@@ -200,7 +404,7 @@ app.get("/users", async(req,res)=>{
 
 const result = await pool.query(`
 
-SELECT 
+SELECT
 
 id,
 username,
@@ -225,12 +429,9 @@ res.json(result.rows);
 
 
 
-
-
-
-// =======================
+// =====================
 // UPDATE PROFILE
-// =======================
+// =====================
 
 
 app.put("/profile/:id", async(req,res)=>{
@@ -293,26 +494,30 @@ res.json(result.rows[0]);
 
 
 
-
-
-
-
-// =======================
-// UPLOAD AVATAR
-// =======================
+// =====================
+// AVATAR UPLOAD
+// =====================
 
 
 app.post(
-
 "/upload/:id",
-
 upload.single("avatar"),
-
 async(req,res)=>{
 
 
-const url =
+if(!req.file){
 
+return res.status(400).json({
+
+error:"Файл не найден"
+
+});
+
+}
+
+
+
+const url =
 "/uploads/" + req.file.filename;
 
 
@@ -353,24 +558,16 @@ avatar:url
 
 
 
-
-
-
-
-
-
-// =======================
-// CHAT HISTORY
-// =======================
+// =====================
+// ALL MESSAGES
+// =====================
 
 
 app.get("/messages",async(req,res)=>{
 
 
 const result =
-await pool.query(
-
-`
+await pool.query(`
 
 SELECT *
 
@@ -378,11 +575,9 @@ FROM messages
 
 ORDER BY created_at ASC
 
-LIMIT 200
+LIMIT 300
 
-`
-
-);
+`);
 
 
 
@@ -394,19 +589,14 @@ res.json(result.rows);
 
 
 
-
-
-
-
-
-// =======================
-// PRIVATE HISTORY
-// =======================
+// =====================
+// PRIVATE MESSAGES
+// =====================
 
 
 app.get(
 
-"/private/:one/:two",
+"/private/:user1/:user2",
 
 async(req,res)=>{
 
@@ -430,14 +620,13 @@ OR
 
 ORDER BY created_at ASC
 
-
 `,
 
 [
 
-req.params.one,
+req.params.user1,
 
-req.params.two
+req.params.user2
 
 ]
 
@@ -454,17 +643,13 @@ res.json(result.rows);
 
 
 
-
-
-// =======================
-// ONLINE USERS
-// =======================
+// =====================
+// SOCKET.IO
+// =====================
 
 
 let onlineUsers=[];
-// =======================
-// SOCKET.IO CHAT
-// =======================
+
 
 
 io.on("connection",(socket)=>{
@@ -477,10 +662,9 @@ console.log(
 
 
 
-
 // USER ONLINE
 
-socket.on("online", async(user)=>{
+socket.on("online",async(user)=>{
 
 
 socket.user=user;
@@ -509,8 +693,6 @@ WHERE id=$1
 
 
 
-
-
 onlineUsers.push({
 
 id:user.id,
@@ -534,28 +716,18 @@ onlineUsers
 );
 
 
-
 });
 
 
 
 
+// PUBLIC CHAT MESSAGE
 
 
-
-
-// PUBLIC MESSAGE
-
-
-socket.on(
-
-"message",
-
-async(data)=>{
+socket.on("message",async(data)=>{
 
 
 const result =
-
 await pool.query(
 
 `
@@ -603,10 +775,6 @@ result.rows[0]
 
 
 
-
-
-
-
 // PRIVATE MESSAGE
 
 
@@ -618,7 +786,6 @@ async(data)=>{
 
 
 const result =
-
 await pool.query(
 
 `
@@ -654,8 +821,7 @@ data.text
 
 
 
-const receiver =
-
+const user =
 onlineUsers.find(
 
 u=>u.id===data.receiver_id
@@ -664,10 +830,10 @@ u=>u.id===data.receiver_id
 
 
 
-if(receiver){
+if(user){
 
 
-io.to(receiver.socket)
+io.to(user.socket)
 
 .emit(
 
@@ -681,12 +847,7 @@ result.rows[0]
 }
 
 
-
 });
-
-
-
-
 
 
 
@@ -717,75 +878,10 @@ data
 
 
 
-
-
-
-// REACTION
-
-
-socket.on(
-
-"reaction",
-
-async(data)=>{
-
-
-await pool.query(
-
-`
-
-INSERT INTO reactions
-
-(
-message_id,
-user_id,
-reaction
-)
-
-VALUES($1,$2,$3)
-
-`,
-
-[
-
-data.message_id,
-
-data.user_id,
-
-data.reaction
-
-]
-
-);
-
-
-
-io.emit(
-
-"reaction",
-
-data
-
-);
-
-
-});
-
-
-
-
-
-
-
-
 // DISCONNECT
 
 
-socket.on(
-
-"disconnect",
-
-async()=>{
+socket.on("disconnect",async()=>{
 
 
 if(socket.user){
@@ -816,10 +912,7 @@ WHERE id=$1
 
 
 
-
-
 onlineUsers =
-
 onlineUsers.filter(
 
 u=>u.socket!==socket.id
@@ -839,29 +932,21 @@ onlineUsers
 
 
 console.log(
-
 "User disconnected"
-
 );
 
 
+});
+
 
 });
 
 
 
-});
 
-
-
-
-
-
-
-
-// =======================
-// START SERVER
-// =======================
+// =====================
+// START
+// =====================
 
 
 createTables()
