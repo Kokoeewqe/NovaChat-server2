@@ -5,12 +5,10 @@ const { Server } = require("socket.io");
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const multer = require("multer");
 require("dotenv").config();
 
 
 const app = express();
-
 const server = http.createServer(app);
 
 
@@ -20,9 +18,6 @@ app.use(cors({
 
 app.use(express.json());
 
-app.use(express.urlencoded({
-    extended:true
-}));
 
 
 const io = new Server(server,{
@@ -33,12 +28,9 @@ const io = new Server(server,{
 
 
 
-// DATABASE
-
 const pool = new Pool({
 
-    connectionString:
-    process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL,
 
     ssl:{
         rejectUnauthorized:false
@@ -48,134 +40,91 @@ const pool = new Pool({
 
 
 
-// CONFIG
-
 const SECRET =
-process.env.JWT_SECRET ||
-"novachat-secret";
+process.env.JWT_SECRET || "novachat-secret";
 
 
 
-
-// UPLOAD
-
-const storage = multer.diskStorage({
-
-destination:function(req,file,cb){
-
-cb(null,"uploads/");
-
-},
-
-
-filename:function(req,file,cb){
-
-cb(
-null,
-Date.now()+"-"+file.originalname
-);
-
-}
-
-});
-
-
-const upload = multer({
-storage
-});
-
-
-app.use(
-"/uploads",
-express.static("uploads")
-);
-
-
-
-
-// DATABASE CREATE
 
 
 async function createTables(){
 
 
-await pool.query(`
+    await pool.query(`
 
-CREATE TABLE IF NOT EXISTS users(
+    CREATE TABLE IF NOT EXISTS users(
 
-id SERIAL PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
 
-username TEXT NOT NULL,
+        username TEXT NOT NULL,
 
-email TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
 
-password TEXT NOT NULL,
+        password TEXT NOT NULL,
 
-avatar TEXT DEFAULT '👤',
+        status TEXT DEFAULT 'offline',
 
-bio TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW()
 
-status TEXT DEFAULT 'offline',
+    );
 
-last_seen TIMESTAMP DEFAULT NOW(),
-
-created_at TIMESTAMP DEFAULT NOW()
-
-);
-
-`);
+    `);
 
 
-await pool.query(`
 
-CREATE TABLE IF NOT EXISTS messages(
+    await pool.query(`
 
-id SERIAL PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS messages(
 
-sender_id INTEGER,
+        id SERIAL PRIMARY KEY,
 
-username TEXT,
+        sender_id INTEGER,
 
-text TEXT,
+        username TEXT,
 
-created_at TIMESTAMP DEFAULT NOW()
+        text TEXT,
 
-);
+        created_at TIMESTAMP DEFAULT NOW()
 
-`);
-// =====================
-// AUTH
-// =====================
+    );
+
+    `);
+
+
+
+    console.log("Database ready");
+
+}
+
+
+
 
 
 function createToken(user){
 
-return jwt.sign(
+    return jwt.sign(
 
-{
-id:user.id,
-username:user.username,
-email:user.email
-},
+        {
+            id:user.id,
+            username:user.username,
+            email:user.email
+        },
 
-SECRET,
+        SECRET,
 
-{
-expiresIn:"30d"
+        {
+            expiresIn:"30d"
+        }
+
+    );
+
 }
 
-);
-
-}
 
 
 
-// =====================
-// REGISTER
-// =====================
 
-
-app.post("/register", async(req,res)=>{
+app.post("/register",async(req,res)=>{
 
 
 try{
@@ -219,8 +168,7 @@ hash
 
 
 
-const user =
-result.rows[0];
+const user=result.rows[0];
 
 
 
@@ -233,6 +181,7 @@ user:user
 });
 
 
+
 }
 
 catch(error){
@@ -243,7 +192,7 @@ console.log(error);
 
 res.status(400).json({
 
-error:"Такой email уже существует"
+error:"Email уже используется"
 
 });
 
@@ -257,15 +206,9 @@ error:"Такой email уже существует"
 
 
 
-// =====================
-// LOGIN
-// =====================
 
 
 app.post("/login",async(req,res)=>{
-
-
-try{
 
 
 const {
@@ -286,7 +229,7 @@ await pool.query(
 
 
 
-if(result.rows.length===0){
+if(!result.rows.length){
 
 return res.status(404).json({
 
@@ -298,8 +241,7 @@ error:"Пользователь не найден"
 
 
 
-const user =
-result.rows[0];
+const user=result.rows[0];
 
 
 
@@ -335,24 +277,6 @@ user:user
 });
 
 
-}
-
-
-catch(error){
-
-console.log(error);
-
-
-res.status(500).json({
-
-error:"Ошибка сервера"
-
-});
-
-
-}
-
-
 });
 
 
@@ -360,51 +284,6 @@ error:"Ошибка сервера"
 
 
 
-// =====================
-// USERS
-// =====================
-
-
-app.get("/users",async(req,res)=>{
-
-
-const result =
-await pool.query(
-
-`
-
-SELECT
-
-id,
-username,
-avatar,
-bio,
-status,
-last_seen,
-created_at
-
-FROM users
-
-ORDER BY id DESC
-
-`
-
-);
-
-
-res.json(result.rows);
-
-
-});
-
-
-
-
-
-
-// =====================
-// MESSAGES HISTORY
-// =====================
 
 
 app.get("/messages",async(req,res)=>{
@@ -428,57 +307,33 @@ LIMIT 300
 );
 
 
+
 res.json(result.rows);
 
 
-});// =====================
-// SOCKET.IO
-// =====================
+});
 
 
-let onlineUsers = [];
+
+
+
+
+
+let onlineUsers=[];
 
 
 
 io.on("connection",(socket)=>{
 
 
-console.log(
-"User connected"
-);
+console.log("User connected");
 
 
 
-
-
-// USER ONLINE
-
-socket.on("online",async(user)=>{
+socket.on("online",(user)=>{
 
 
 socket.user=user;
-
-
-
-await pool.query(
-
-`
-
-UPDATE users
-
-SET
-
-status='online',
-
-last_seen=NOW()
-
-WHERE id=$1
-
-`,
-
-[user.id]
-
-);
 
 
 
@@ -488,8 +343,6 @@ id:user.id,
 
 username:user.username,
 
-avatar:user.avatar,
-
 socket:socket.id
 
 });
@@ -497,8 +350,11 @@ socket:socket.id
 
 
 io.emit(
+
 "onlineUsers",
+
 onlineUsers
+
 );
 
 
@@ -508,9 +364,6 @@ onlineUsers
 
 
 
-
-
-// PUBLIC MESSAGE
 
 
 socket.on("message",async(data)=>{
@@ -523,11 +376,7 @@ await pool.query(
 
 INSERT INTO messages
 
-(
-sender_id,
-username,
-text
-)
+(sender_id,username,text)
 
 VALUES($1,$2,$3)
 
@@ -565,63 +414,7 @@ result.rows[0]
 
 
 
-
-// TYPING
-
-
-socket.on("typing",(data)=>{
-
-
-socket.broadcast.emit(
-
-"typing",
-
-data
-
-);
-
-
-});
-
-
-
-
-
-
-
-
-// DISCONNECT
-
-
-socket.on("disconnect",async()=>{
-
-
-if(socket.user){
-
-
-await pool.query(
-
-`
-
-UPDATE users
-
-SET
-
-status='offline',
-
-last_seen=NOW()
-
-WHERE id=$1
-
-`,
-
-[socket.user.id]
-
-);
-
-
-}
-
+socket.on("disconnect",()=>{
 
 
 onlineUsers =
@@ -643,9 +436,7 @@ onlineUsers
 
 
 
-console.log(
-"User disconnected"
-);
+console.log("User disconnected");
 
 
 });
@@ -656,12 +447,6 @@ console.log(
 
 
 
-
-
-
-// =====================
-// START SERVER
-// =====================
 
 
 createTables()
@@ -677,7 +462,9 @@ process.env.PORT || 10000,
 
 
 console.log(
+
 "NovaChat Pro server started"
+
 );
 
 
