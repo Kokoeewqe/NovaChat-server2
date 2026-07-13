@@ -197,7 +197,7 @@ INSERT INTO users
 
 VALUES($1,$2,$3)
 
-RETURNING id,username,email
+RETURNING id,username,email,avatar,status,created_at
 
 `,
 
@@ -323,7 +323,13 @@ id:user.id,
 
 username:user.username,
 
-email:user.email
+email:user.email,
+
+avatar:user.avatar,
+
+status:user.status,
+
+created_at:user.created_at
 
 }
 
