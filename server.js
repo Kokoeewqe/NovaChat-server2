@@ -9,28 +9,36 @@ require("dotenv").config();
 
 
 const app = express();
+
 const server = http.createServer(app);
 
 
-app.use(cors({
-    origin:"*"
-}));
+app.use(cors());
 
 app.use(express.json());
 
 
+// отдаём сайт из папки public
+app.use(express.static("public"));
 
-const io = new Server(server,{
+
+
+const io = new Server(server, {
+
     cors:{
         origin:"*"
     }
+
 });
 
 
 
+// PostgreSQL Render
+
 const pool = new Pool({
 
-    connectionString: process.env.DATABASE_URL,
+    connectionString:
+    process.env.DATABASE_URL,
 
     ssl:{
         rejectUnauthorized:false
@@ -47,54 +55,57 @@ process.env.JWT_SECRET || "novachat-secret";
 
 
 
-async function createTables(){
+// создание таблиц
+
+async function initDatabase(){
 
 
-    await pool.query(`
+await pool.query(`
 
-    CREATE TABLE IF NOT EXISTS users(
+CREATE TABLE IF NOT EXISTS users (
 
-        id SERIAL PRIMARY KEY,
+id SERIAL PRIMARY KEY,
 
-        username TEXT NOT NULL,
+username TEXT NOT NULL,
 
-        email TEXT UNIQUE NOT NULL,
+email TEXT UNIQUE NOT NULL,
 
-        password TEXT NOT NULL,
+password TEXT NOT NULL,
 
-        status TEXT DEFAULT 'offline',
+created_at TIMESTAMP DEFAULT NOW()
 
-        created_at TIMESTAMP DEFAULT NOW()
+);
 
-    );
-
-    `);
-
-
-
-    await pool.query(`
-
-    CREATE TABLE IF NOT EXISTS messages(
-
-        id SERIAL PRIMARY KEY,
-
-        sender_id INTEGER,
-
-        username TEXT,
-
-        text TEXT,
-
-        created_at TIMESTAMP DEFAULT NOW()
-
-    );
-
-    `);
+`);
 
 
 
-    console.log("Database ready");
+
+await pool.query(`
+
+CREATE TABLE IF NOT EXISTS messages (
+
+id SERIAL PRIMARY KEY,
+
+user_id INTEGER,
+
+username TEXT,
+
+text TEXT,
+
+created_at TIMESTAMP DEFAULT NOW()
+
+);
+
+`);
+
+
+
+console.log("Database ready");
+
 
 }
+
 
 
 
@@ -102,21 +113,29 @@ async function createTables(){
 
 function createToken(user){
 
-    return jwt.sign(
 
-        {
-            id:user.id,
-            username:user.username,
-            email:user.email
-        },
+return jwt.sign(
 
-        SECRET,
+{
 
-        {
-            expiresIn:"30d"
-        }
+id:user.id,
 
-    );
+username:user.username,
+
+email:user.email
+
+},
+
+SECRET,
+
+{
+
+expiresIn:"30d"
+
+}
+
+);
+
 
 }
 
@@ -124,16 +143,23 @@ function createToken(user){
 
 
 
-app.post("/register",async(req,res)=>{
+
+// REGISTER
+
+app.post("/register", async(req,res)=>{
 
 
 try{
 
 
 const {
+
 username,
+
 email,
+
 password
+
 }=req.body;
 
 
@@ -154,14 +180,18 @@ INSERT INTO users
 
 VALUES($1,$2,$3)
 
-RETURNING *
+RETURNING id,username,email,created_at
 
 `,
 
 [
+
 username,
+
 email,
+
 hash
+
 ]
 
 );
@@ -174,9 +204,9 @@ const user=result.rows[0];
 
 res.json({
 
-token:createToken(user),
+user,
 
-user:user
+token:createToken(user)
 
 });
 
@@ -188,6 +218,7 @@ catch(error){
 
 
 console.log(error);
+
 
 
 res.status(400).json({
@@ -208,12 +239,22 @@ error:"Email уже используется"
 
 
 
-app.post("/login",async(req,res)=>{
+
+// LOGIN
+
+
+app.post("/login", async(req,res)=>{
+
+
+try{
 
 
 const {
+
 email,
+
 password
+
 }=req.body;
 
 
@@ -229,13 +270,15 @@ await pool.query(
 
 
 
-if(!result.rows.length){
+if(result.rows.length===0){
+
 
 return res.status(404).json({
 
 error:"Пользователь не найден"
 
 });
+
 
 }
 
@@ -245,7 +288,7 @@ const user=result.rows[0];
 
 
 
-const check =
+const ok =
 await bcrypt.compare(
 
 password,
@@ -256,7 +299,8 @@ user.password
 
 
 
-if(!check){
+if(!ok){
+
 
 return res.status(401).json({
 
@@ -264,29 +308,50 @@ error:"Неверный пароль"
 
 });
 
+
 }
 
 
 
 res.json({
 
-token:createToken(user),
+user,
 
-user:user
-
-});
-
+token:createToken(user)
 
 });
 
 
 
+}
+
+catch(error){
+
+
+console.log(error);
+
+
+res.status(500).json({
+
+error:"Ошибка сервера"
+
+});
+
+
+}
+
+
+});
 
 
 
 
 
-app.get("/messages",async(req,res)=>{
+
+
+// сообщения
+
+app.get("/messages", async(req,res)=>{
 
 
 const result =
@@ -300,7 +365,7 @@ FROM messages
 
 ORDER BY created_at ASC
 
-LIMIT 300
+LIMIT 200
 
 `
 
@@ -319,6 +384,10 @@ res.json(result.rows);
 
 
 
+
+// SOCKET CHAT
+
+
 let onlineUsers=[];
 
 
@@ -330,7 +399,7 @@ console.log("User connected");
 
 
 
-socket.on("online",(user)=>{
+socket.on("join",(user)=>{
 
 
 socket.user=user;
@@ -376,7 +445,7 @@ await pool.query(
 
 INSERT INTO messages
 
-(sender_id,username,text)
+(user_id,username,text)
 
 VALUES($1,$2,$3)
 
@@ -386,7 +455,7 @@ RETURNING *
 
 [
 
-data.sender_id,
+data.user_id,
 
 data.username,
 
@@ -408,6 +477,8 @@ result.rows[0]
 
 
 });
+
+
 
 
 
@@ -449,7 +520,12 @@ console.log("User disconnected");
 
 
 
-createTables()
+
+
+// запуск
+
+
+initDatabase()
 
 .then(()=>{
 
@@ -462,13 +538,13 @@ process.env.PORT || 10000,
 
 
 console.log(
-
-"NovaChat Pro server started"
-
+"NovaChat server started"
 );
 
 
-});
+}
+
+);
 
 
 });
