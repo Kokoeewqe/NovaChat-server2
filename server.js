@@ -57,7 +57,29 @@ rejectUnauthorized:false
 
 
 
-async function createTables(){
+await pool.query(`
+
+CREATE TABLE IF NOT EXISTS users(
+
+id SERIAL PRIMARY KEY,
+
+username TEXT NOT NULL,
+
+email TEXT UNIQUE NOT NULL,
+
+password TEXT NOT NULL,
+
+avatar TEXT DEFAULT '👤',
+
+status TEXT DEFAULT 'offline',
+
+last_seen TIMESTAMP DEFAULT NOW(),
+
+created_at TIMESTAMP DEFAULT NOW()
+
+);
+
+`);
 
 
 await pool.query(`
