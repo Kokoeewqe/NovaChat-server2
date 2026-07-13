@@ -1,65 +1,63 @@
-require("dotenv").config();
-
 const express = require("express");
-const cors = require("cors");
 const http = require("http");
+const cors = require("cors");
 const { Server } = require("socket.io");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
+const bcrypt = require("bcrypt");
+
 
 
 const app = express();
-
-app.use(cors());
-app.use(express.json());
-
 
 const server = http.createServer(app);
 
 
 
-const io = new Server(server, {
+app.use(cors());
 
-    cors:{
-        origin:"*"
-    }
+app.use(express.json());
+
+
+
+
+
+const io = new Server(server,{
+
+cors:{
+origin:"*"
+}
 
 });
 
 
 
-// =====================
+
+
+
+
+// =======================
 // DATABASE
-// =====================
+// =======================
 
 
 const pool = new Pool({
 
-    connectionString:
-    process.env.DATABASE_URL,
+connectionString:
+process.env.DATABASE_URL,
 
-    ssl:{
-        rejectUnauthorized:false
-    }
+ssl:{
+rejectUnauthorized:false
+}
 
 });
 
 
 
-const SECRET="NOVACHAT_SECRET";
 
 
-
-
-
-// =====================
-// CREATE TABLES
-// =====================
 
 
 async function createTables(){
-
 
 
 await pool.query(`
@@ -77,6 +75,7 @@ password TEXT NOT NULL,
 created_at TIMESTAMP DEFAULT NOW()
 
 );
+
 
 `);
 
@@ -98,8 +97,8 @@ created_at TIMESTAMP DEFAULT NOW()
 
 );
 
-`);
 
+`);
 
 
 
@@ -124,8 +123,8 @@ created_at TIMESTAMP DEFAULT NOW()
 
 );
 
-`);
 
+`);
 
 
 
@@ -141,34 +140,9 @@ console.log("Database ready");
 
 
 
-// =====================
-// HOME
-// =====================
-
-
-app.get("/",(req,res)=>{
-
-
-res.send(
-
-"NovaChat Backend v4 🚀"
-
-);
-
-
-});
-
-
-
-
-
-
-
-
-
-// =====================
+// =======================
 // REGISTER
-// =====================
+// =======================
 
 
 app.post("/register",async(req,res)=>{
@@ -181,40 +155,13 @@ const {
 username,
 email,
 password
+
 }=req.body;
 
 
 
-const check =
-await pool.query(
-
-"SELECT id FROM users WHERE email=$1",
-
-[email]
-
-);
-
-
-
-if(check.rows.length){
-
-return res.json({
-
-error:"User exists"
-
-});
-
-
-}
-
-
-
-
 const hash =
-await bcrypt.hash(
-password,
-10
-);
+await bcrypt.hash(password,10);
 
 
 
@@ -224,7 +171,6 @@ await pool.query(
 `
 
 INSERT INTO users
-
 (username,email,password)
 
 VALUES($1,$2,$3)
@@ -239,22 +185,33 @@ email,
 hash
 ]
 
+
 );
 
 
 
-res.json(result.rows[0]);
+res.json({
+
+user:result.rows[0]
+
+});
+
 
 
 }
 
 catch(e){
 
-res.status(500).json({
 
-error:e.message
+console.log(e);
+
+
+res.json({
+
+error:"Пользователь уже существует"
 
 });
+
 
 }
 
@@ -269,20 +226,18 @@ error:e.message
 
 
 
-// =====================
+// =======================
 // LOGIN
-// =====================
+// =======================
 
 
 app.post("/login",async(req,res)=>{
 
 
-try{
-
-
 const {
 email,
 password
+
 }=req.body;
 
 
@@ -302,7 +257,7 @@ if(!result.rows.length){
 
 return res.json({
 
-error:"Not found"
+error:"Пользователь не найден"
 
 });
 
@@ -310,11 +265,12 @@ error:"Not found"
 
 
 
-const user=result.rows[0];
+const user =
+result.rows[0];
 
 
 
-const valid =
+const check =
 await bcrypt.compare(
 
 password,
@@ -325,11 +281,11 @@ user.password
 
 
 
-if(!valid){
+if(!check){
 
 return res.json({
 
-error:"Wrong password"
+error:"Неверный пароль"
 
 });
 
@@ -337,33 +293,7 @@ error:"Wrong password"
 
 
 
-const token =
-jwt.sign(
-
-{
-
-id:user.id,
-
-username:user.username
-
-},
-
-SECRET,
-
-{
-
-expiresIn:"7d"
-
-}
-
-);
-
-
-
-
 res.json({
-
-token,
 
 user:{
 
@@ -378,19 +308,6 @@ email:user.email
 });
 
 
-}
-
-catch(e){
-
-res.status(500).json({
-
-error:e.message
-
-});
-
-}
-
-
 });
 
 
@@ -401,9 +318,9 @@ error:e.message
 
 
 
-// =====================
+// =======================
 // USERS
-// =====================
+// =======================
 
 
 app.get("/users",async(req,res)=>{
@@ -413,11 +330,8 @@ const result =
 await pool.query(
 
 `
-
-SELECT id,username,created_at
-
+SELECT id,username
 FROM users
-
 ORDER BY id DESC
 
 `
@@ -429,7 +343,6 @@ ORDER BY id DESC
 res.json(result.rows);
 
 
-
 });
 
 
@@ -440,15 +353,23 @@ res.json(result.rows);
 
 
 
-// =====================
+// =======================
 // PRIVATE HISTORY
-// =====================
+// =======================
 
 
 app.get(
 "/private/:user1/:user2",
 
 async(req,res)=>{
+
+
+const {
+user1,
+user2
+
+}=req.params;
+
 
 
 const result =
@@ -468,18 +389,15 @@ OR
 
 (sender_id=$2 AND receiver_id=$1)
 
-ORDER BY id ASC
+ORDER BY created_at ASC
+
 
 `,
 
 [
-
-req.params.user1,
-
-req.params.user2
-
+user1,
+user2
 ]
-
 
 );
 
@@ -499,12 +417,13 @@ res.json(result.rows);
 
 
 
-// =====================
+// =======================
 // SOCKET
-// =====================
+// =======================
 
 
-let onlineUsers = new Map();
+let onlineUsers=[];
+
 
 
 
@@ -521,17 +440,23 @@ console.log(
 
 socket.on(
 "online",
-
 (user)=>{
 
 
-onlineUsers.set(
+socket.user=user;
 
-socket.id,
 
-user
 
-);
+onlineUsers.push({
+
+id:user.id,
+
+username:user.username,
+
+socket:socket.id
+
+});
+
 
 
 
@@ -539,9 +464,7 @@ io.emit(
 
 "onlineUsers",
 
-Array.from(
-onlineUsers.values()
-)
+onlineUsers
 
 );
 
@@ -554,7 +477,7 @@ onlineUsers.values()
 
 
 
-// общий чат история
+// LOAD CHAT HISTORY
 
 
 pool.query(
@@ -565,9 +488,10 @@ SELECT *
 
 FROM messages
 
-ORDER BY id ASC
+ORDER BY created_at ASC
 
 LIMIT 100
+
 
 `
 
@@ -593,7 +517,9 @@ result.rows
 
 
 
-// общий чат сообщение
+
+
+// PUBLIC MESSAGE
 
 
 socket.on(
@@ -607,18 +533,17 @@ await pool.query(
 
 `
 
-INSERT INTO messages(username,text)
+INSERT INTO messages
+
+(username,text)
 
 VALUES($1,$2)
 
 `,
 
 [
-
 data.username,
-
 data.text
-
 ]
 
 );
@@ -629,9 +554,18 @@ io.emit(
 
 "message",
 
-data
+{
+
+username:data.username,
+
+text:data.text,
+
+created_at:new Date()
+
+}
 
 );
+
 
 
 });
@@ -644,7 +578,7 @@ data
 
 
 
-// личные сообщения
+// PRIVATE MESSAGE
 
 
 socket.on(
@@ -669,6 +603,7 @@ text
 
 VALUES($1,$2,$3,$4)
 
+
 `,
 
 [
@@ -687,13 +622,32 @@ data.text
 
 
 
-socket.broadcast.emit(
+
+
+const receiver =
+onlineUsers.find(
+
+u=>u.id===data.receiver_id
+
+);
+
+
+
+if(receiver){
+
+
+io.to(receiver.socket)
+.emit(
 
 "privateMessage",
 
 data
 
 );
+
+
+}
+
 
 
 
@@ -714,9 +668,10 @@ socket.on(
 ()=>{
 
 
-onlineUsers.delete(
+onlineUsers =
+onlineUsers.filter(
 
-socket.id
+u=>u.socket!==socket.id
 
 );
 
@@ -726,56 +681,50 @@ io.emit(
 
 "onlineUsers",
 
-Array.from(
-
-onlineUsers.values()
-
-)
+onlineUsers
 
 );
 
 
 
 console.log(
-
 "User disconnected"
-
 );
 
 
-});
-
-
 
 });
 
 
+});
 
 
 
 
 
 
-// =====================
+
+
+
+// =======================
 // START
-// =====================
+// =======================
 
 
 createTables()
-
 .then(()=>{
 
 
 server.listen(
 
-10000,
+process.env.PORT || 10000,
 
 ()=>{
 
 
 console.log(
 
-"NovaChat server started on port 10000"
+"NovaChat server started"
 
 );
 
