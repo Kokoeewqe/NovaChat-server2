@@ -29,9 +29,9 @@ const io = new Server(server, {
 
 
 
-// ============================
+// =====================
 // DATABASE
-// ============================
+// =====================
 
 
 const pool = new Pool({
@@ -47,13 +47,19 @@ const pool = new Pool({
 
 
 
+const SECRET="NOVACHAT_SECRET";
 
-// ============================
-// TABLES
-// ============================
+
+
+
+
+// =====================
+// CREATE TABLES
+// =====================
 
 
 async function createTables(){
+
 
 
 await pool.query(`
@@ -77,13 +83,12 @@ created_at TIMESTAMP DEFAULT NOW()
 
 
 
+
 await pool.query(`
 
 CREATE TABLE IF NOT EXISTS messages(
 
 id SERIAL PRIMARY KEY,
-
-user_id INTEGER,
 
 username TEXT,
 
@@ -97,6 +102,33 @@ created_at TIMESTAMP DEFAULT NOW()
 
 
 
+
+
+
+
+await pool.query(`
+
+CREATE TABLE IF NOT EXISTS private_messages(
+
+id SERIAL PRIMARY KEY,
+
+sender_id INTEGER,
+
+receiver_id INTEGER,
+
+sender_name TEXT,
+
+text TEXT,
+
+created_at TIMESTAMP DEFAULT NOW()
+
+);
+
+`);
+
+
+
+
 console.log("Database ready");
 
 
@@ -105,22 +137,24 @@ console.log("Database ready");
 
 
 
-const SECRET="NOVACHAT_SECRET_KEY";
 
 
 
 
-
-// ============================
+// =====================
 // HOME
-// ============================
+// =====================
 
 
 app.get("/",(req,res)=>{
 
+
 res.send(
-"NovaChat Backend v3 🚀"
+
+"NovaChat Backend v4 🚀"
+
 );
+
 
 });
 
@@ -130,9 +164,11 @@ res.send(
 
 
 
-// ============================
+
+
+// =====================
 // REGISTER
-// ============================
+// =====================
 
 
 app.post("/register",async(req,res)=>{
@@ -149,7 +185,7 @@ password
 
 
 
-const exists =
+const check =
 await pool.query(
 
 "SELECT id FROM users WHERE email=$1",
@@ -160,13 +196,14 @@ await pool.query(
 
 
 
-if(exists.rows.length){
+if(check.rows.length){
 
 return res.json({
 
-error:"User already exists"
+error:"User exists"
 
 });
+
 
 }
 
@@ -187,6 +224,7 @@ await pool.query(
 `
 
 INSERT INTO users
+
 (username,email,password)
 
 VALUES($1,$2,$3)
@@ -205,10 +243,7 @@ hash
 
 
 
-res.json(
-result.rows[0]
-);
-
+res.json(result.rows[0]);
 
 
 }
@@ -232,9 +267,11 @@ error:e.message
 
 
 
-// ============================
+
+
+// =====================
 // LOGIN
-// ============================
+// =====================
 
 
 app.post("/login",async(req,res)=>{
@@ -247,7 +284,6 @@ const {
 email,
 password
 }=req.body;
-
 
 
 
@@ -266,7 +302,7 @@ if(!result.rows.length){
 
 return res.json({
 
-error:"User not found"
+error:"Not found"
 
 });
 
@@ -278,7 +314,7 @@ const user=result.rows[0];
 
 
 
-const check =
+const valid =
 await bcrypt.compare(
 
 password,
@@ -289,7 +325,7 @@ user.password
 
 
 
-if(!check){
+if(!valid){
 
 return res.json({
 
@@ -298,7 +334,6 @@ error:"Wrong password"
 });
 
 }
-
 
 
 
@@ -365,56 +400,34 @@ error:e.message
 
 
 
-// ============================
-// USERS LIST
-// ============================
+
+// =====================
+// USERS
+// =====================
 
 
 app.get("/users",async(req,res)=>{
 
 
-try{
-
-
 const result =
-await pool.query(`
+await pool.query(
 
-SELECT
+`
 
-id,
-
-username,
-
-created_at
+SELECT id,username,created_at
 
 FROM users
 
 ORDER BY id DESC
 
-`);
+`
 
-
-
-
-res.json(
-result.rows
 );
 
 
 
-}
+res.json(result.rows);
 
-catch(e){
-
-
-res.status(500).json({
-
-error:e.message
-
-});
-
-
-}
 
 
 });
@@ -427,13 +440,71 @@ error:e.message
 
 
 
-// ============================
-// SOCKET CHAT
-// ============================
+// =====================
+// PRIVATE HISTORY
+// =====================
+
+
+app.get(
+"/private/:user1/:user2",
+
+async(req,res)=>{
+
+
+const result =
+await pool.query(
+
+`
+
+SELECT *
+
+FROM private_messages
+
+WHERE
+
+(sender_id=$1 AND receiver_id=$2)
+
+OR
+
+(sender_id=$2 AND receiver_id=$1)
+
+ORDER BY id ASC
+
+`,
+
+[
+
+req.params.user1,
+
+req.params.user2
+
+]
+
+
+);
 
 
 
-let onlineUsers=new Map();
+res.json(result.rows);
+
+
+
+});
+
+
+
+
+
+
+
+
+
+// =====================
+// SOCKET
+// =====================
+
+
+let onlineUsers = new Map();
 
 
 
@@ -447,10 +518,10 @@ console.log(
 
 
 
-// пользователь онлайн
 
 socket.on(
 "online",
+
 (user)=>{
 
 
@@ -480,10 +551,15 @@ onlineUsers.values()
 
 
 
-// история сообщений
 
 
-pool.query(`
+
+// общий чат история
+
+
+pool.query(
+
+`
 
 SELECT *
 
@@ -493,7 +569,9 @@ ORDER BY id ASC
 
 LIMIT 100
 
-`)
+`
+
+)
 
 .then(result=>{
 
@@ -514,7 +592,8 @@ result.rows
 
 
 
-// новое сообщение
+
+// общий чат сообщение
 
 
 socket.on(
@@ -524,16 +603,11 @@ socket.on(
 async(data)=>{
 
 
-try{
-
-
 await pool.query(
 
 `
 
-INSERT INTO messages
-
-(username,text)
+INSERT INTO messages(username,text)
 
 VALUES($1,$2)
 
@@ -551,7 +625,6 @@ data.text
 
 
 
-
 io.emit(
 
 "message",
@@ -561,17 +634,72 @@ data
 );
 
 
+});
 
-}
 
-catch(e){
 
-console.log(e);
 
-}
+
+
+
+
+
+// личные сообщения
+
+
+socket.on(
+
+"privateMessage",
+
+async(data)=>{
+
+
+await pool.query(
+
+`
+
+INSERT INTO private_messages
+
+(
+sender_id,
+receiver_id,
+sender_name,
+text
+)
+
+VALUES($1,$2,$3,$4)
+
+`,
+
+[
+
+data.sender_id,
+
+data.receiver_id,
+
+data.sender_name,
+
+data.text
+
+]
+
+);
+
+
+
+socket.broadcast.emit(
+
+"privateMessage",
+
+data
+
+);
+
 
 
 });
+
+
 
 
 
@@ -618,6 +746,7 @@ console.log(
 });
 
 
+
 });
 
 
@@ -626,9 +755,10 @@ console.log(
 
 
 
-// ============================
+
+// =====================
 // START
-// ============================
+// =====================
 
 
 createTables()
